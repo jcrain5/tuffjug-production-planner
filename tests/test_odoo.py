@@ -91,7 +91,9 @@ def test_get_products_returns_models(monkeypatch):
 
     products = client.get_products()
 
-    assert products == [{"id": 1, "name": "Widget"}]
+    assert len(products) == 1
+    assert products[0].id == 1
+    assert products[0].name == "Widget"
 
 
 def test_odoo_status_endpoint_returns_connected_true(monkeypatch):

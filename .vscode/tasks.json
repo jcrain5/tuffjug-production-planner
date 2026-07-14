@@ -40,6 +40,118 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python -m pip install --disable-pip-version-check jinja2 && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }
