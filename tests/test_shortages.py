@@ -178,6 +178,8 @@ def test_positive_2000_on_hand_remains_positive():
     assert plan[0]["on_hand_quantity"] == 2000.0
     assert plan[0]["reserved_quantity"] == 2000.0
     assert plan[0]["free_available_quantity"] == 0.0
+    assert plan[0]["projected_available"] == 0.0
+    assert plan[0]["quantity_short"] == 1.0
 
 
 def test_template_level_bom_returns_manufacture():

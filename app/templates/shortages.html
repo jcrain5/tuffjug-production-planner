@@ -11,6 +11,12 @@
         .nav-link { color: #e2e8f0; }
         .nav-link:hover { color: #fff; }
         .card { border: 0; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); border-radius: 16px; }
+        .table-shortages { table-layout: fixed; font-size: 0.9rem; }
+        .col-parent { width: 14rem; }
+        .col-sku { width: 7rem; }
+        .col-component { width: 16rem; }
+        .col-num { width: 6.5rem; text-align: right; white-space: nowrap; }
+        .col-action { width: 8rem; }
     </style>
 </head>
 <body>
@@ -58,19 +64,22 @@
                 </form>
             </div>
             <div class="card p-3">
-                <table class="table table-hover align-middle">
+                <div class="table-responsive">
+                <table class="table table-hover align-middle table-shortages">
                     <thead>
                         <tr>
-                            <th>Parent product</th>
-                            <th>Component SKU</th>
-                            <th>Component name</th>
-                            <th>Required</th>
-                            <th>Available</th>
-                            <th>Incoming MO</th>
-                            <th>Incoming PO</th>
-                            <th>Projected available</th>
-                            <th>Shortage</th>
-                            <th>Action</th>
+                            <th class="col-parent">Parent product</th>
+                            <th class="col-sku">Component SKU</th>
+                            <th class="col-component">Component name</th>
+                            <th class="col-num">Required</th>
+                            <th class="col-num">On Hand</th>
+                            <th class="col-num">Reserved</th>
+                            <th class="col-num">Free Available</th>
+                            <th class="col-num">Incoming MO</th>
+                            <th class="col-num">Incoming PO</th>
+                            <th class="col-num">Projected Available</th>
+                            <th class="col-num">Shortage</th>
+                            <th class="col-action">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -79,19 +88,22 @@
                             <td>{{ row.parent_product }}</td>
                             <td>{{ row.component_sku or '—' }}</td>
                             <td>{{ row.component_name }}</td>
-                            <td>{{ row.quantity_required }}</td>
-                            <td>{{ row.quantity_available }}</td>
-                            <td>{{ row.incoming_mo_quantity }}</td>
-                            <td>{{ row.incoming_po_quantity }}</td>
-                            <td>{{ row.projected_available }}</td>
-                            <td>{{ row.quantity_short }}</td>
+                            <td class="col-num">{{ row.quantity_required }}</td>
+                            <td class="col-num">{{ row.on_hand_quantity }}</td>
+                            <td class="col-num">{{ row.reserved_quantity }}</td>
+                            <td class="col-num">{{ row.free_available_quantity }}</td>
+                            <td class="col-num">{{ row.incoming_mo_quantity }}</td>
+                            <td class="col-num">{{ row.incoming_po_quantity }}</td>
+                            <td class="col-num">{{ row.projected_available }}</td>
+                            <td class="col-num">{{ row.quantity_short }}</td>
                             <td><span class="badge {% if row.recommended_action == 'Available' %}bg-success{% elif row.recommended_action == 'Purchase' %}bg-warning{% elif row.recommended_action == 'Manufacture' %}bg-info{% else %}bg-secondary{% endif %}">{{ row.recommended_action }}</span></td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="10" class="text-muted">No shortage data available.</td></tr>
+                        <tr><td colspan="12" class="text-muted">No shortage data available.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
         </main>
     </div>
