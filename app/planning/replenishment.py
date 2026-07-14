@@ -70,20 +70,22 @@ class ShortagePlanningEngine:
             component_id = item["product_id"]
             required_quantity = float(item["quantity"])
             inventory_item = self.inventory_lookup.get(component_id)
-            available_quantity = float(getattr(inventory_item, "quantity", 0) or 0)
+            on_hand_quantity = float(getattr(inventory_item, "quantity", 0) or 0)
+            reserved_quantity = float(getattr(inventory_item, "reserved_quantity", 0) or 0)
+            free_available_quantity = on_hand_quantity - reserved_quantity
             incoming_mo_quantity = self.incoming_mo_lookup.get(component_id, 0.0)
             incoming_po_quantity = self.incoming_po_lookup.get(component_id, 0.0)
-            projected_available = available_quantity + incoming_mo_quantity + incoming_po_quantity
-            if incoming_mo_quantity > 0 or incoming_po_quantity > 0:
-                projected_available += required_quantity
+            projected_available = free_available_quantity + incoming_mo_quantity + incoming_po_quantity
             short_quantity = max(required_quantity - projected_available, 0.0)
 
             if short_quantity <= 0:
                 action = "Available"
             elif self._has_active_normal_bom(component_id):
                 action = "Manufacture"
-            else:
+            elif self._is_purchasable(component_id):
                 action = "Purchase"
+            else:
+                action = "Needs Review"
 
             plan.append(
                 {
@@ -91,7 +93,10 @@ class ShortagePlanningEngine:
                     "component_sku": getattr(self._resolve_product(component_id), "default_code", None),
                     "component_name": item["product_name"],
                     "quantity_required": required_quantity,
-                    "quantity_available": available_quantity,
+                    "quantity_available": free_available_quantity,
+                    "on_hand_quantity": on_hand_quantity,
+                    "reserved_quantity": reserved_quantity,
+                    "free_available_quantity": free_available_quantity,
                     "incoming_mo_quantity": incoming_mo_quantity,
                     "incoming_po_quantity": incoming_po_quantity,
                     "projected_available": projected_available,
@@ -103,8 +108,15 @@ class ShortagePlanningEngine:
         return plan
 
     def _has_active_normal_bom(self, product_id: int) -> bool:
+        product = self._resolve_product(product_id)
+        template_id = getattr(product, "product_tmpl_id", None)
         return any(
-            getattr(bom, "product_id", None) == product_id and getattr(bom, "active", True) is True and getattr(bom, "type", None) == "normal"
+            getattr(bom, "active", True) is True
+            and getattr(bom, "type", None) == "normal"
+            and (
+                getattr(bom, "product_id", None) == product_id
+                or (template_id is not None and getattr(bom, "product_template_id", None) == template_id)
+            )
             for bom in self.boms
         )
 
@@ -112,6 +124,10 @@ class ShortagePlanningEngine:
         if product_id is None:
             return None
         return next((product for product in self.products if getattr(product, "id", None) == product_id), None)
+
+    def _is_purchasable(self, product_id: int) -> bool:
+        product = self._resolve_product(product_id)
+        return bool(getattr(product, "purchase_ok", False))
 
 
 def build_shortage_plan(

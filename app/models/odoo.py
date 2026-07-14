@@ -47,6 +47,19 @@ class ProductModel(AtlasBaseModel):
     name: str | None = None
     default_code: str | None = None
     list_price: float | None = None
+    product_tmpl_id: int | None = None
+    purchase_ok: bool | None = None
+
+    @classmethod
+    def from_odoo_record(cls, record: dict[str, Any]) -> "ProductModel":
+        normalized: dict[str, Any] = {}
+        for key, value in record.items():
+            if key == "product_tmpl_id":
+                many2one = cls._normalize_many2one(value)
+                normalized["product_tmpl_id"] = many2one.get("id") if many2one else None
+                continue
+            normalized[key] = cls._normalize_value(key, value)
+        return cls(**normalized)
 
 
 class BomModel(AtlasBaseModel):
@@ -118,6 +131,7 @@ class BomComponentModel(AtlasBaseModel):
 class InventoryItemModel(AtlasBaseModel):
     product_id: int | None = None
     quantity: float | None = None
+    reserved_quantity: float | None = None
     location_id: int | None = None
 
 

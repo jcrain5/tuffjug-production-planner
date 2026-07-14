@@ -132,7 +132,10 @@ class OdooClient:
         return [model_cls.from_odoo_record(record) for record in records]
 
     def get_products(self) -> list[ProductModel]:
-        records = self._execute("product.product", fields=["id", "name", "default_code", "list_price"])
+        records = self._execute(
+            "product.product",
+            fields=["id", "name", "default_code", "list_price", "product_tmpl_id", "purchase_ok"],
+        )
         return self._map_records(records, ProductModel)
 
     def get_boms(self) -> list[BomModel]:
@@ -173,8 +176,32 @@ class OdooClient:
         return self._map_records(records, ReorderingRuleModel)
 
     def get_inventory(self) -> list[InventoryItemModel]:
-        records = self._execute("stock.quant", fields=["id", "product_id", "quantity", "location_id"])
-        return self._map_records(records, InventoryItemModel)
+        records = self._execute(
+            "stock.quant",
+            domain=[["location_id.usage", "=", "internal"]],
+            fields=["id", "product_id", "quantity", "reserved_quantity", "location_id"],
+        )
+        grouped: dict[int, dict[str, Any]] = {}
+        for record in records:
+            product_raw = record.get("product_id")
+            if isinstance(product_raw, (list, tuple)) and product_raw:
+                product_id = product_raw[0]
+            elif isinstance(product_raw, dict):
+                product_id = product_raw.get("id")
+            else:
+                product_id = product_raw
+
+            if product_id is None:
+                continue
+
+            bucket = grouped.setdefault(
+                int(product_id),
+                {"product_id": int(product_id), "quantity": 0.0, "reserved_quantity": 0.0},
+            )
+            bucket["quantity"] += float(record.get("quantity") or 0.0)
+            bucket["reserved_quantity"] += float(record.get("reserved_quantity") or 0.0)
+
+        return [InventoryItemModel(**values) for values in grouped.values()]
 
     def get_manufacturing_orders(self) -> list[ManufacturingOrderModel]:
         records = self._execute("mrp.production", fields=["id", "name", "state", "product_id", "bom_id"])

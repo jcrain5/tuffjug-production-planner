@@ -12,9 +12,9 @@ from app.planning.replenishment import ShortagePlanningEngine, build_shortage_pl
 def test_shortage_engine_builds_purchase_plan_for_short_components():
     products = [
         ProductModel(id=10, name="Finished Product"),
-        ProductModel(id=20, name="Raw Material A"),
+        ProductModel(id=20, name="Raw Material A", purchase_ok=True),
         ProductModel(id=30, name="Subassembly"),
-        ProductModel(id=40, name="Raw Material B"),
+        ProductModel(id=40, name="Raw Material B", purchase_ok=True),
     ]
     boms = [
         BomModel(id=1, product_id=10, name="Finished BOM"),
@@ -46,7 +46,7 @@ def test_shortage_helper_wraps_engine():
         quantity=1.0,
         boms=[BomModel(id=1, product_id=10, name="Finished BOM")],
         components=[BomComponentModel(id=100, bom_id=1, product_id=20, product_qty=2.0)],
-        products=[ProductModel(id=10, name="Finished Product"), ProductModel(id=20, name="Raw Material A")],
+        products=[ProductModel(id=10, name="Finished Product"), ProductModel(id=20, name="Raw Material A", purchase_ok=True)],
         inventory=[InventoryItemModel(id=1, product_id=20, quantity=5.0)],
     )
 
@@ -57,7 +57,7 @@ def test_shortage_helper_wraps_engine():
 def test_as20_quantity_5000_reports_spout_base_shortage():
     products = [
         ProductModel(id=100, name="AS20"),
-        ProductModel(id=200, name="Spout Base", default_code="SPB-001"),
+        ProductModel(id=200, name="Spout Base", default_code="SPB-001", purchase_ok=True),
     ]
     boms = [BomModel(id=39, display_name="AS20 Assembly", product_template_id=100, product_id=None)]
     components = [BomComponentModel(id=1, bom_id=39, product_id=200, product_qty=1.0)]
@@ -112,7 +112,7 @@ def test_incoming_mo_reduces_shortage():
     plan = engine.build_plan(10, quantity=2.0)
 
     assert plan[0]["incoming_mo_quantity"] == 2.0
-    assert plan[0]["projected_available"] == 5.0
+    assert plan[0]["projected_available"] == 3.0
     assert plan[0]["quantity_short"] == 0.0
     assert plan[0]["recommended_action"] == "Available"
 
@@ -134,7 +134,7 @@ def test_incoming_po_reduces_shortage():
     plan = engine.build_plan(10, quantity=2.0)
 
     assert plan[0]["incoming_po_quantity"] == 2.0
-    assert plan[0]["projected_available"] == 5.0
+    assert plan[0]["projected_available"] == 3.0
     assert plan[0]["quantity_short"] == 0.0
     assert plan[0]["recommended_action"] == "Available"
 
@@ -164,3 +164,50 @@ def test_template_level_bom_resolution_uses_template_id():
     assert len(plan) == 1
     assert plan[0]["component_name"] == "Leaf"
     assert plan[0]["parent_product"] == "Template BOM"
+
+
+def test_positive_2000_on_hand_remains_positive():
+    products = [ProductModel(id=10, name="Parent"), ProductModel(id=805, name="Spout Base Raw")]
+    boms = [BomModel(id=1, product_id=10)]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=805, product_qty=1.0)]
+    inventory = [InventoryItemModel(id=1, product_id=805, quantity=2000.0, reserved_quantity=2000.0)]
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(10, quantity=1.0)
+
+    assert plan[0]["on_hand_quantity"] == 2000.0
+    assert plan[0]["reserved_quantity"] == 2000.0
+    assert plan[0]["free_available_quantity"] == 0.0
+
+
+def test_template_level_bom_returns_manufacture():
+    products = [
+        ProductModel(id=10, name="Parent"),
+        ProductModel(id=20, name="Component", product_tmpl_id=30),
+    ]
+    boms = [
+        BomModel(id=1, product_id=10),
+        BomModel(id=2, product_id=None, product_template_id=30, active=True, type="normal"),
+    ]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=20, product_qty=2.0)]
+    inventory = [InventoryItemModel(id=1, product_id=20, quantity=0.0, reserved_quantity=0.0)]
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(10, quantity=1.0)
+
+    assert plan[0]["recommended_action"] == "Manufacture"
+
+
+def test_purchased_component_returns_purchase():
+    products = [
+        ProductModel(id=10, name="Parent"),
+        ProductModel(id=20, name="Buy Part", purchase_ok=True),
+    ]
+    boms = [BomModel(id=1, product_id=10)]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=20, product_qty=1.0)]
+    inventory = [InventoryItemModel(id=1, product_id=20, quantity=0.0, reserved_quantity=0.0)]
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(10, quantity=1.0)
+
+    assert plan[0]["recommended_action"] == "Purchase"
