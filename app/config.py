@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     odoo_username: str = ""
     odoo_api_key: str = ""
     shopify_store: str = ""
-    shopify_access_token: str = ""
+    shopify_client_id: str = ""
+    shopify_client_secret: str = ""
     shopify_api_version: str = "2024-10"
 
     model_config = SettingsConfigDict(

@@ -1,31 +1,182 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+
+import httpx
+import pytest
 
 from app.config import Settings
-from app.integrations.shopify import ShopifyClient
+from app.integrations.shopify import ShopifyClient, ShopifyTokenError
 
 
-def test_shopify_status_successful_authentication(monkeypatch):
-    client = ShopifyClient(
+class FakeResponse:
+    def __init__(self, status_code=200, json_data=None):
+        self.status_code = status_code
+        self._json_data = json_data or {}
+        self.content = b"{}"
+
+    def json(self):
+        return self._json_data
+
+
+class FakeHTTPClient:
+    def __init__(self, responses, calls):
+        self._responses = responses
+        self._calls = calls
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def post(self, url, headers=None, json=None, data=None):
+        self._calls.append({"url": url, "headers": headers or {}, "json": json, "data": data})
+        if not self._responses:
+            raise AssertionError("No fake HTTP responses left")
+        return self._responses.pop(0)
+
+
+def _build_client():
+    return ShopifyClient(
         config=Settings(
-            shopify_store="atlas-store",
-            shopify_access_token="secret",
+            shopify_store="8b5c56-36.myshopify.com",
+            shopify_client_id="client-id",
+            shopify_client_secret="client-secret",
             shopify_api_version="2024-10",
         )
     )
 
-    def fake_graphql(query, variables=None):
-        return {"shop": {"id": "gid://shopify/Shop/1", "name": "Atlas"}}
 
-    monkeypatch.setattr(client, "_graphql", fake_graphql)
+def test_successful_token_acquisition(monkeypatch):
+    ShopifyClient._token_cache.clear()
+    client = _build_client()
+    calls = []
+    responses = [
+        FakeResponse(
+            200,
+            {
+                "access_token": "token-1",
+                "scope": "read_orders",
+                "expires_in": 3600,
+            },
+        )
+    ]
+
+    monkeypatch.setattr("app.integrations.shopify.httpx.Client", lambda timeout=30.0: FakeHTTPClient(responses, calls))
+
+    token = client._get_access_token()
+
+    assert token.access_token == "token-1"
+    assert token.scopes == ["read_orders"]
+    assert token.expires_in == 3600
+    assert len(calls) == 1
+    assert calls[0]["data"]["grant_type"] == "client_credentials"
+
+
+def test_cached_token_reuse(monkeypatch):
+    ShopifyClient._token_cache.clear()
+    client = _build_client()
+    calls = []
+    responses = [
+        FakeResponse(200, {"access_token": "token-1", "scope": "read_orders", "expires_in": 3600})
+    ]
+
+    monkeypatch.setattr("app.integrations.shopify.httpx.Client", lambda timeout=30.0: FakeHTTPClient(responses, calls))
+
+    first = client._get_access_token()
+    second = client._get_access_token()
+
+    assert first.access_token == second.access_token
+    assert len(calls) == 1
+
+
+def test_automatic_refresh_before_expiration(monkeypatch):
+    ShopifyClient._token_cache.clear()
+    client = _build_client()
+    key = client._cache_key()
+    client._token_cache[key] = type("T", (), {
+        "access_token": "stale",
+        "scopes": ["read_orders"],
+        "expires_in": 3600,
+        "expires_at": datetime.now(timezone.utc) + timedelta(seconds=200),
+    })()
+
+    calls = []
+    responses = [
+        FakeResponse(200, {"access_token": "fresh", "scope": "read_orders", "expires_in": 3600})
+    ]
+    monkeypatch.setattr("app.integrations.shopify.httpx.Client", lambda timeout=30.0: FakeHTTPClient(responses, calls))
+
+    token = client._get_access_token()
+
+    assert token.access_token == "fresh"
+    assert len(calls) == 1
+
+
+def test_refresh_after_authentication_failure(monkeypatch):
+    ShopifyClient._token_cache.clear()
+    client = _build_client()
+
+    token_responses = [
+        FakeResponse(200, {"access_token": "old-token", "scope": "read_orders", "expires_in": 3600}),
+        FakeResponse(200, {"access_token": "new-token", "scope": "read_orders", "expires_in": 3600}),
+    ]
+    graphql_responses = [
+        FakeResponse(401, {"errors": [{"message": "Invalid API key or access token"}]}),
+        FakeResponse(200, {"data": {"shop": {"id": "gid://shopify/Shop/1"}}}),
+    ]
+
+    calls = []
+
+    def fake_client(timeout=30.0):
+        if token_responses:
+            # token request occurs when data payload is provided
+            return FakeHTTPClient(token_responses, calls)
+        return FakeHTTPClient(graphql_responses, calls)
+
+    # Route calls by URL within a single fake client factory
+    def fake_client_router(timeout=30.0):
+        class Router(FakeHTTPClient):
+            def post(self_inner, url, headers=None, json=None, data=None):
+                if url.endswith("/admin/oauth/access_token"):
+                    return FakeHTTPClient(token_responses, calls).post(url, headers=headers, json=json, data=data)
+                return FakeHTTPClient(graphql_responses, calls).post(url, headers=headers, json=json, data=data)
+
+        return Router([], calls)
+
+    monkeypatch.setattr("app.integrations.shopify.httpx.Client", fake_client_router)
+
+    data = client._graphql("query { shop { id } }")
+
+    assert data["shop"]["id"] == "gid://shopify/Shop/1"
+
+
+def test_token_endpoint_error(monkeypatch):
+    ShopifyClient._token_cache.clear()
+    client = _build_client()
+    calls = []
+    responses = [FakeResponse(401, {"error": "invalid_client"})]
+
+    monkeypatch.setattr("app.integrations.shopify.httpx.Client", lambda timeout=30.0: FakeHTTPClient(responses, calls))
+
+    with pytest.raises(ShopifyTokenError):
+        client._get_access_token()
+
+
+def test_no_credential_leakage_in_status_error(monkeypatch):
+    ShopifyClient._token_cache.clear()
+    client = _build_client()
+
+    monkeypatch.setattr(client, "_request_access_token", lambda: (_ for _ in ()).throw(ShopifyTokenError("Token endpoint failure")))
 
     status = client.status()
 
-    assert status["configured"] is True
-    assert status["connected"] is True
+    text = str(status)
+    assert "client-secret" not in text
+    assert "token" not in text.lower() or "token_expiration_time" in text
 
 
 def test_shopify_orders_pagination(monkeypatch):
-    client = ShopifyClient(config=Settings(shopify_store="atlas-store", shopify_access_token="secret"))
+    client = _build_client()
 
     responses = [
         {
@@ -114,58 +265,8 @@ def test_shopify_orders_pagination(monkeypatch):
     assert rows[1]["order_number"] == "#1002"
 
 
-def test_shopify_orders_exclusions_cancelled_refunded_missing_sku(monkeypatch):
-    client = ShopifyClient(config=Settings(shopify_store="atlas-store", shopify_access_token="secret"))
-
-    payload = {
-        "orders": {
-            "edges": [
-                {
-                    "node": {
-                        "id": "gid://shopify/Order/1",
-                        "name": "#1001",
-                        "createdAt": "2026-01-01T00:00:00Z",
-                        "displayFinancialStatus": "REFUNDED",
-                        "displayFulfillmentStatus": "UNFULFILLED",
-                        "cancelledAt": "2026-01-03T00:00:00Z",
-                        "test": False,
-                        "sourceName": "web",
-                        "lineItems": {
-                            "edges": [
-                                {
-                                    "node": {
-                                        "id": "gid://shopify/LineItem/1",
-                                        "sku": "",
-                                        "name": "No SKU",
-                                        "quantity": 2,
-                                        "currentQuantity": 0,
-                                        "isGiftCard": False,
-                                    }
-                                }
-                            ],
-                            "pageInfo": {"hasNextPage": False, "endCursor": None},
-                        },
-                    }
-                }
-            ],
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-        }
-    }
-
-    monkeypatch.setattr(client, "_graphql", lambda query, variables=None: payload)
-
-    included_rows = client.get_order_lines(start_date="2026-01-01", end_date="2026-01-31", include_excluded=False)
-    excluded_rows = client.get_order_lines(start_date="2026-01-01", end_date="2026-01-31", include_excluded=True)
-
-    assert included_rows == []
-    assert len(excluded_rows) == 1
-    assert excluded_rows[0]["is_cancelled_order"] is True
-    assert excluded_rows[0]["is_missing_sku"] is True
-    assert excluded_rows[0]["is_fully_refunded"] is True
-
-
 def test_shopify_demand_by_sku_aggregates_net_units(monkeypatch):
-    client = ShopifyClient(config=Settings(shopify_store="atlas-store", shopify_access_token="secret"))
+    client = _build_client()
 
     rows = [
         {

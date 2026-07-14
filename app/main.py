@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 from app.integrations.odoo import OdooClient
+from app.integrations.shopify import ShopifyError
 from app.integrations.shopify import ShopifyClient
 from app.planning.replenishment import ShortagePlanningEngine
 
@@ -110,6 +111,15 @@ def shopify_orders(
             "end_date": end_value,
             "items": items,
         }
+    except ShopifyError as exc:
+        return {
+            "connected": False,
+            "count": 0,
+            "start_date": start_value,
+            "end_date": end_value,
+            "items": [],
+            "error": str(exc),
+        }
     except Exception:
         return {
             "connected": False,
@@ -117,6 +127,7 @@ def shopify_orders(
             "start_date": start_value,
             "end_date": end_value,
             "items": [],
+            "error": "Shopify request failed",
         }
 
 
@@ -135,6 +146,15 @@ def shopify_demand_by_sku(start_date: str | None = None, end_date: str | None = 
             "end_date": end_value,
             "items": items,
         }
+    except ShopifyError as exc:
+        return {
+            "connected": False,
+            "count": 0,
+            "start_date": start_value,
+            "end_date": end_value,
+            "items": [],
+            "error": str(exc),
+        }
     except Exception:
         return {
             "connected": False,
@@ -142,6 +162,7 @@ def shopify_demand_by_sku(start_date: str | None = None, end_date: str | None = 
             "start_date": start_value,
             "end_date": end_value,
             "items": [],
+            "error": "Shopify request failed",
         }
 
 

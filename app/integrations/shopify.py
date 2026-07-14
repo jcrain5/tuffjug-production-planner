@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -8,7 +9,45 @@ import httpx
 from ..config import Settings, get_settings
 
 
+class ShopifyError(RuntimeError):
+    pass
+
+
+class ShopifyConfigurationError(ShopifyError):
+    pass
+
+
+class ShopifyTokenError(ShopifyError):
+    pass
+
+
+class ShopifyAuthError(ShopifyError):
+    pass
+
+
+class ShopifyScopeError(ShopifyError):
+    pass
+
+
+class ShopifyGraphQLError(ShopifyError):
+    pass
+
+
+@dataclass
+class ShopifyToken:
+    access_token: str
+    scopes: list[str]
+    expires_in: int
+    expires_at: datetime
+
+
+TOKEN_SAFETY_MARGIN_SECONDS = 300
+REQUIRED_SCOPES = {"read_orders"}
+
+
 class ShopifyClient:
+    _token_cache: dict[str, ShopifyToken] = {}
+
     def __init__(self, config: Settings | None = None) -> None:
         self.config = config or get_settings()
 
@@ -26,26 +65,125 @@ class ShopifyClient:
         store = self._normalize_store()
         return f"https://{store}/admin/api/{self.config.shopify_api_version}/graphql.json"
 
+    def _token_url(self) -> str:
+        store = self._normalize_store()
+        return f"https://{store}/admin/oauth/access_token"
+
     def _is_configured(self) -> bool:
-        return bool((self.config.shopify_store or "").strip() and (self.config.shopify_access_token or "").strip())
+        return bool(
+            (self.config.shopify_store or "").strip()
+            and (self.config.shopify_client_id or "").strip()
+            and (self.config.shopify_client_secret or "").strip()
+        )
 
-    def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _cache_key(self) -> str:
+        return f"{self._normalize_store()}::{self.config.shopify_client_id}"
+
+    def _scopes_valid(self, scopes: list[str]) -> bool:
+        return REQUIRED_SCOPES.issubset(set(scopes))
+
+    def _parse_scopes(self, raw_scope: str | None) -> list[str]:
+        if not raw_scope:
+            return []
+        return [scope.strip() for scope in raw_scope.split(",") if scope.strip()]
+
+    def _request_access_token(self) -> ShopifyToken:
         if not self._is_configured():
-            raise RuntimeError("Shopify is not configured")
+            raise ShopifyConfigurationError("Missing Shopify credentials")
 
+        data = {
+            "grant_type": "client_credentials",
+            "client_id": self.config.shopify_client_id,
+            "client_secret": self.config.shopify_client_secret,
+        }
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(self._token_url(), data=data)
+        except Exception as exc:
+            raise ShopifyTokenError("Token endpoint failure") from exc
+
+        if response.status_code in (401, 403):
+            raise ShopifyTokenError("Invalid Shopify client credentials or app not installed")
+        if response.status_code >= 400:
+            raise ShopifyTokenError("Token endpoint failure")
+
+        body = response.json()
+        access_token = body.get("access_token")
+        if not access_token:
+            raise ShopifyTokenError("Token endpoint failure")
+
+        expires_in = int(body.get("expires_in") or 3600)
+        scopes = self._parse_scopes(body.get("scope"))
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        token = ShopifyToken(
+            access_token=access_token,
+            scopes=scopes,
+            expires_in=expires_in,
+            expires_at=expires_at,
+        )
+        if not self._scopes_valid(token.scopes):
+            raise ShopifyScopeError("Missing required Shopify scopes")
+        return token
+
+    def _token_is_usable(self, token: ShopifyToken) -> bool:
+        return datetime.now(timezone.utc) < (token.expires_at - timedelta(seconds=TOKEN_SAFETY_MARGIN_SECONDS))
+
+    def _invalidate_token(self) -> None:
+        self._token_cache.pop(self._cache_key(), None)
+
+    def _get_access_token(self, force_refresh: bool = False) -> ShopifyToken:
+        key = self._cache_key()
+        if not force_refresh:
+            cached = self._token_cache.get(key)
+            if cached and self._token_is_usable(cached):
+                return cached
+
+        token = self._request_access_token()
+        self._token_cache[key] = token
+        return token
+
+    @staticmethod
+    def _is_auth_failure(response: httpx.Response, body: dict[str, Any] | None) -> bool:
+        if response.status_code in (401, 403):
+            return True
+        if not body:
+            return False
+        errors = body.get("errors")
+        if isinstance(errors, list):
+            for error in errors:
+                message = str(error.get("message", "")).lower() if isinstance(error, dict) else str(error).lower()
+                if "invalid api key" in message or "access token" in message or "unauthorized" in message:
+                    return True
+        return False
+
+    def _graphql_request(self, query: str, variables: dict[str, Any] | None = None, retry_on_auth_failure: bool = True) -> dict[str, Any]:
+        token = self._get_access_token(force_refresh=False)
         headers = {
-            "X-Shopify-Access-Token": self.config.shopify_access_token,
+            "X-Shopify-Access-Token": token.access_token,
             "Content-Type": "application/json",
         }
         payload = {"query": query, "variables": variables or {}}
+
         with httpx.Client(timeout=30.0) as client:
             response = client.post(self._graphql_url(), headers=headers, json=payload)
 
-        response.raise_for_status()
-        data = response.json()
-        if data.get("errors"):
-            raise RuntimeError("Shopify GraphQL query failed")
-        return data.get("data", {})
+        body = response.json() if response.content else {}
+        if self._is_auth_failure(response, body):
+            if retry_on_auth_failure:
+                self._invalidate_token()
+                return self._graphql_request(query, variables=variables, retry_on_auth_failure=False)
+            raise ShopifyAuthError("Shopify authentication failed")
+
+        if response.status_code >= 400:
+            raise ShopifyGraphQLError("Shopify GraphQL request failed")
+
+        if body.get("errors"):
+            raise ShopifyGraphQLError("Shopify GraphQL returned errors")
+
+        return body.get("data", {})
+
+    def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self._graphql_request(query=query, variables=variables)
 
     @staticmethod
     def _format_date(value: date | datetime | str) -> str:
@@ -60,13 +198,41 @@ class ShopifyClient:
         return dt.isoformat() + "Z"
 
     def status(self) -> dict[str, Any]:
+        store = self._normalize_store()
         if not self._is_configured():
-            return {"connected": False, "configured": False}
+            return {
+                "connected": False,
+                "store": store,
+                "granted_scopes": [],
+                "token_expiration_time": None,
+                "error": "Missing Shopify credentials",
+            }
         try:
             data = self._graphql("query { shop { id name } }")
-            return {"connected": bool(data.get("shop")), "configured": True}
+            token = self._get_access_token(force_refresh=False)
+            return {
+                "connected": bool(data.get("shop")),
+                "store": store,
+                "granted_scopes": token.scopes,
+                "token_expiration_time": token.expires_at.isoformat(),
+            }
+        except ShopifyError as exc:
+            token = self._token_cache.get(self._cache_key())
+            return {
+                "connected": False,
+                "store": store,
+                "granted_scopes": token.scopes if token else [],
+                "token_expiration_time": token.expires_at.isoformat() if token else None,
+                "error": str(exc),
+            }
         except Exception:
-            return {"connected": False, "configured": True}
+            return {
+                "connected": False,
+                "store": store,
+                "granted_scopes": [],
+                "token_expiration_time": None,
+                "error": "Shopify connection failed",
+            }
 
     @staticmethod
     def _refunded_quantity(line_node: dict[str, Any]) -> float:
