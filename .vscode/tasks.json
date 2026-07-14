@@ -32,6 +32,14 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "atlas-pytest",
+			"type": "shell",
+			"command": ". .venv/bin/activate && pytest -q",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }

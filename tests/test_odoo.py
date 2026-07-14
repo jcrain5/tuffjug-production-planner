@@ -5,6 +5,32 @@ from app.integrations.odoo import OdooClient
 from app.main import app
 
 
+class FakeOdooClient:
+    def __init__(self):
+        self.connected = True
+
+    def connect(self):
+        return True
+
+    def get_products(self):
+        return [{"id": 1, "name": "Widget"}]
+
+    def get_boms(self):
+        return [{"id": 10, "name": "Main BOM"}]
+
+    def get_reordering_rules(self):
+        return [{"id": 100, "product_id": 1, "product_min_qty": 5}]
+
+    def get_inventory(self):
+        return [{"id": 200, "product_id": 1, "quantity": 12.0}]
+
+    def get_manufacturing_orders(self):
+        return [{"id": 300, "name": "MO-001", "state": "draft"}]
+
+    def get_purchase_orders(self):
+        return [{"id": 400, "name": "PO-001", "state": "draft"}]
+
+
 class FakeCommonProxy:
     def __init__(self, url):
         self.url = url
@@ -76,3 +102,23 @@ def test_odoo_status_endpoint_returns_connected_true(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"connected": True}
+
+
+def test_products_endpoint_returns_structured_payload(monkeypatch):
+    monkeypatch.setattr("app.main.OdooClient", FakeOdooClient)
+
+    client = TestClient(app)
+    response = client.get("/odoo/products")
+
+    assert response.status_code == 200
+    assert response.json() == {"connected": True, "count": 1, "items": [{"id": 1, "name": "Widget"}]}
+
+
+def test_boms_endpoint_returns_structured_payload(monkeypatch):
+    monkeypatch.setattr("app.main.OdooClient", FakeOdooClient)
+
+    client = TestClient(app)
+    response = client.get("/odoo/boms")
+
+    assert response.status_code == 200
+    assert response.json() == {"connected": True, "count": 1, "items": [{"id": 10, "name": "Main BOM"}]}
