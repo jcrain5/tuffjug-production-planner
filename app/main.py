@@ -48,6 +48,12 @@ def odoo_boms() -> dict[str, object]:
     return _build_collection_payload(client.get_boms(), connected)
 
 
+@app.get("/odoo/boms/diagnostic")
+def odoo_boms_diagnostic() -> dict[str, object]:
+    client = OdooClient()
+    return client.diagnose_bom_access()
+
+
 @app.get("/odoo/reordering-rules")
 def odoo_reordering_rules() -> dict[str, object]:
     client = OdooClient()

@@ -35,6 +35,12 @@ def test_odoo_client_maps_products_into_product_models(monkeypatch):
     assert products[0].default_code == "W-001"
 
 
+def test_product_model_normalizes_false_default_code_to_none():
+    product = ProductModel.from_odoo_record({"id": 1, "name": "Product without SKU", "default_code": False})
+
+    assert product.default_code is None
+
+
 def test_odoo_client_maps_boms_and_components(monkeypatch):
     bom_records = [{"id": 10, "name": "Main BOM", "type": "normal"}]
     component_records = [{"id": 100, "bom_id": 10, "product_id": 1, "product_qty": 2.0}]

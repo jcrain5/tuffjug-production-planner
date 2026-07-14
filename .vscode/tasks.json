@@ -152,6 +152,78 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "atlas-uvicorn",
+			"type": "shell",
+			"command": ". .venv/bin/activate && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "atlas-health-check",
+			"type": "shell",
+			"command": "curl -i http://127.0.0.1:8000/health",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-odoo-boms",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nfrom app.integrations.odoo import OdooClient\nclient = OdooClient()\nconnected = client.connect()\nprint('connected=' + str(connected))\nif connected:\n    boms = client.get_boms()\n    print('bom_count=' + str(len(boms)))\n    for bom in boms[:10]:\n        print(bom.to_dict())\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-odoo-bom-diagnostic",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nimport json\nfrom app.integrations.odoo import OdooClient\nclient = OdooClient()\nresult = client.diagnose_bom_access()\nprint(json.dumps(result, indent=2, default=str))\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-odoo-bom-diagnostic",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nimport json\nfrom app.integrations.odoo import OdooClient\nclient = OdooClient()\nresult = client.diagnose_bom_access()\nprint(json.dumps(result, indent=2, default=str))\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-odoo-bom-shapes",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nfrom app.integrations.odoo import OdooClient\nimport json\nclient = OdooClient()\nprint('connect', client.connect())\nrecords = client._execute('mrp.bom', domain=[['active','=',True]], fields=['id','display_name','code','active','type','product_tmpl_id','product_id','product_qty','uom_id','bom_line_ids','operation_ids','ready_to_produce','produce_delay','days_to_prepare_mo','enable_batch_size','batch_size','company_id'])\nprint('bom_count', len(records))\nfor record in records[:3]:\n    print(json.dumps(record, indent=2, default=str))\n    print('---')\nline_fields = client.models.execute_kw(client.config.odoo_database, client.uid, client.config.odoo_api_key, 'mrp.bom.line', 'fields_get', [[]], {'attributes':['string','type','required','readonly']})\nprint('bom_line_fields_sample', {k: line_fields[k] for k in list(line_fields)[:20]})\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-bom-model-shape",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nfrom app.integrations.odoo import OdooClient\nfrom app.models.odoo import BomModel\nclient = OdooClient()\nclient.connect()\nrecords = client._execute('mrp.bom', domain=[['active','=',True]], fields=['id','display_name','code','active','type','product_tmpl_id','product_id','product_qty','uom_id','bom_line_ids','operation_ids','ready_to_produce','produce_delay','days_to_prepare_mo','enable_batch_size','batch_size','company_id'])\nmodels = [BomModel.from_odoo_record(r) for r in records[:3]]\nfor model in models:\n    print(model.model_dump())\n    print('---')\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-bom-line-records",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nfrom app.integrations.odoo import OdooClient\nclient = OdooClient()\nclient.connect()\nrecords = client._execute('mrp.bom.line', fields=['id','bom_id','product_id','product_qty'])\nprint('bom_line_count', len(records))\nfor r in records[:3]:\n    print(r)\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "probe-live-boms",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nfrom app.integrations.odoo import OdooClient\nfrom app.models.odoo import BomModel, BomComponentModel\nclient = OdooClient()\nclient.connect()\nboms = client.get_boms()\ncomponents = client.get_bom_components()\nprint('bom_count', len(boms))\nfor bom in boms[:5]:\n    print(bom.model_dump())\nprint('bom_line_count', len(components))\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }

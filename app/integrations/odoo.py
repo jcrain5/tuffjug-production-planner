@@ -3,6 +3,8 @@ from __future__ import annotations
 import xmlrpc.client as xmlrpc_client
 from typing import Any
 
+from xmlrpc.client import ProtocolError
+
 from ..config import Settings, get_settings
 from ..models.odoo import (
     BomComponentModel,
@@ -76,7 +78,55 @@ class OdooClient:
                 return result
             return []
         except Exception:
-            return []
+            raise
+
+    def diagnose_bom_access(self) -> dict[str, Any]:
+        if not self._require_connection():
+            return {
+                "connected": False,
+                "error": "Unable to connect to Odoo",
+                "checks": {},
+            }
+
+        if self.models is None or self.uid is None:
+            return {
+                "connected": False,
+                "error": "Odoo client is not ready",
+                "checks": {},
+            }
+
+        results: dict[str, Any] = {
+            "connected": True,
+            "checks": {},
+        }
+
+        checks = [
+            ("search_count_empty", "mrp.bom", "search_count", [[]], {}),
+            ("search_count_active", "mrp.bom", "search_count", [[['active', '=', True]]], {}),
+            ("search", "mrp.bom", "search", [[]], {"limit": 5}),
+            ("search_read", "mrp.bom", "search_read", [[]], {"fields": ["id"], "limit": 5}),
+            ("fields_get", "mrp.bom", "fields_get", [[]], {"attributes": ["string", "type", "required", "readonly"]}),
+        ]
+
+        for name, model, method, args, kwargs in checks:
+            try:
+                result = self.models.execute_kw(
+                    self.config.odoo_database,
+                    self.uid,
+                    self.config.odoo_api_key,
+                    model,
+                    method,
+                    args,
+                    kwargs,
+                )
+                results["checks"][name] = {"result": result, "error": None}
+            except Exception as exc:
+                results["checks"][name] = {
+                    "result": None,
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                }
+
+        return results
 
     def _map_records(self, records: list[dict[str, Any]], model_cls: type[Any]) -> list[Any]:
         return [model_cls.from_odoo_record(record) for record in records]
@@ -86,11 +136,36 @@ class OdooClient:
         return self._map_records(records, ProductModel)
 
     def get_boms(self) -> list[BomModel]:
-        records = self._execute("mrp.bom", fields=["id", "name", "type"])
+        records = self._execute(
+            "mrp.bom",
+            domain=[["active", "=", True]],
+            fields=[
+                "id",
+                "display_name",
+                "code",
+                "active",
+                "type",
+                "product_tmpl_id",
+                "product_id",
+                "product_qty",
+                "uom_id",
+                "bom_line_ids",
+                "operation_ids",
+                "ready_to_produce",
+                "produce_delay",
+                "days_to_prepare_mo",
+                "enable_batch_size",
+                "batch_size",
+                "company_id",
+            ],
+        )
         return self._map_records(records, BomModel)
 
     def get_bom_components(self) -> list[BomComponentModel]:
-        records = self._execute("mrp.bom.line", fields=["id", "bom_id", "product_id", "product_qty"])
+        records = self._execute(
+            "mrp.bom.line",
+            fields=["id", "bom_id", "product_id", "product_qty"],
+        )
         return self._map_records(records, BomComponentModel)
 
     def get_reordering_rules(self) -> list[ReorderingRuleModel]:

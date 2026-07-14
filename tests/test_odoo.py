@@ -96,6 +96,174 @@ def test_get_products_returns_models(monkeypatch):
     assert products[0].name == "Widget"
 
 
+def test_get_boms_queries_active_boms_from_mrp_bom(monkeypatch):
+    class BOMProxy:
+        def __init__(self):
+            self.calls = []
+
+        def execute_kw(self, db, uid, password, model, method, args, kwargs=None):
+            self.calls.append((model, method, args, kwargs))
+            return [{"id": 10, "name": "Main BOM", "type": "normal"}]
+
+    proxy = BOMProxy()
+    monkeypatch.setattr("app.integrations.odoo.xmlrpc_client.ServerProxy", lambda url: proxy)
+
+    client = OdooClient(
+        config=Settings(
+            odoo_url="https://odoo.example",
+            odoo_database="atlas",
+            odoo_username="admin",
+            odoo_api_key="secret",
+        )
+    )
+    client.connected = True
+    client.uid = 7
+    client.models = proxy
+
+    boms = client.get_boms()
+
+    assert len(boms) == 1
+    assert proxy.calls[0][0] == "mrp.bom"
+    assert proxy.calls[0][1] == "search_read"
+    assert proxy.calls[0][2] == [[['active', '=', True]]]
+    assert proxy.calls[0][3]["fields"] == [
+        "id",
+        "display_name",
+        "code",
+        "active",
+        "type",
+        "product_tmpl_id",
+        "product_id",
+        "product_qty",
+        "uom_id",
+        "bom_line_ids",
+        "operation_ids",
+        "ready_to_produce",
+        "produce_delay",
+        "days_to_prepare_mo",
+        "enable_batch_size",
+        "batch_size",
+        "company_id",
+    ]
+
+
+def test_diagnose_bom_access_keeps_running_after_a_failure(monkeypatch):
+    class MixedFailureProxy:
+        def execute_kw(self, db, uid, password, model, method, args, kwargs=None):
+            if method == "search_count":
+                if args == [[]]:
+                    raise PermissionError("Access denied")
+                return 0
+            if method == "search":
+                return [1, 2]
+            if method == "search_read":
+                return [{"id": 1}]
+            if method == "fields_get":
+                return {"id": {"type": "integer"}}
+            return None
+
+    proxy = MixedFailureProxy()
+    monkeypatch.setattr("app.integrations.odoo.xmlrpc_client.ServerProxy", lambda url: proxy)
+
+    client = OdooClient(
+        config=Settings(
+            odoo_url="https://odoo.example",
+            odoo_database="atlas",
+            odoo_username="admin",
+            odoo_api_key="secret",
+        )
+    )
+    client.connected = True
+    client.uid = 7
+    client.models = proxy
+
+    result = client.diagnose_bom_access()
+
+    assert result["connected"] is True
+    assert result["checks"]["search_count_empty"]["error"]["type"] == "PermissionError"
+    assert result["checks"]["search_count_active"]["result"] == 0
+    assert result["checks"]["search"]["result"] == [1, 2]
+    assert result["checks"]["search_read"]["result"] == [{"id": 1}]
+    assert result["checks"]["fields_get"]["result"] == {"id": {"type": "integer"}}
+
+
+def test_diagnose_bom_access_returns_zero_records(monkeypatch):
+    class ZeroRecordsProxy:
+        def execute_kw(self, db, uid, password, model, method, args, kwargs=None):
+            if method == "search_count":
+                return 0
+            if method == "search":
+                return []
+            if method == "search_read":
+                return []
+            if method == "fields_get":
+                return {"id": {"type": "integer"}}
+            return None
+
+    proxy = ZeroRecordsProxy()
+    monkeypatch.setattr("app.integrations.odoo.xmlrpc_client.ServerProxy", lambda url: proxy)
+
+    client = OdooClient(
+        config=Settings(
+            odoo_url="https://odoo.example",
+            odoo_database="atlas",
+            odoo_username="admin",
+            odoo_api_key="secret",
+        )
+    )
+    client.connected = True
+    client.uid = 7
+    client.models = proxy
+
+    result = client.diagnose_bom_access()
+
+    assert result["connected"] is True
+    assert result["checks"]["search_count_empty"]["result"] == 0
+    assert result["checks"]["search_count_active"]["result"] == 0
+    assert result["checks"]["search"]["result"] == []
+    assert result["checks"]["search_read"]["result"] == []
+    assert result["checks"]["fields_get"]["error"] is None
+
+
+def test_diagnose_bom_access_returns_records(monkeypatch):
+    class SuccessProxy:
+        def execute_kw(self, db, uid, password, model, method, args, kwargs=None):
+            if method == "search_count":
+                return 2
+            if method == "search":
+                return [1, 2]
+            if method == "search_read":
+                return [{"id": 1}, {"id": 2}]
+            if method == "fields_get":
+                return {"id": {"type": "integer"}, "active": {"type": "boolean"}}
+            return None
+
+    proxy = SuccessProxy()
+    monkeypatch.setattr("app.integrations.odoo.xmlrpc_client.ServerProxy", lambda url: proxy)
+
+    client = OdooClient(
+        config=Settings(
+            odoo_url="https://odoo.example",
+            odoo_database="atlas",
+            odoo_username="admin",
+            odoo_api_key="secret",
+        )
+    )
+    client.connected = True
+    client.uid = 7
+    client.models = proxy
+
+    result = client.diagnose_bom_access()
+
+    assert result["connected"] is True
+    assert result["checks"]["search_count_empty"]["error"] is None
+    assert result["checks"]["search_count_empty"]["result"] == 2
+    assert result["checks"]["search_count_active"]["result"] == 2
+    assert result["checks"]["search"]["result"] == [1, 2]
+    assert result["checks"]["search_read"]["result"][0]["id"] == 1
+    assert result["checks"]["fields_get"]["result"]["active"]["type"] == "boolean"
+
+
 def test_odoo_status_endpoint_returns_connected_true(monkeypatch):
     monkeypatch.setattr("app.integrations.odoo.xmlrpc_client.ServerProxy", lambda url: FakeCommonProxy(url))
 
