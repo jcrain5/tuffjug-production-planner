@@ -8,6 +8,7 @@ def test_settings_loads_environment_values(monkeypatch):
     monkeypatch.setenv("ODOO_API_KEY", "secret")
     monkeypatch.setenv("SHOPIFY_STORE", "store-1")
     monkeypatch.setenv("SHOPIFY_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("SHOPIFY_API_VERSION", "2025-01")
 
     settings = Settings()
 
@@ -17,6 +18,7 @@ def test_settings_loads_environment_values(monkeypatch):
     assert settings.odoo_api_key == "secret"
     assert settings.shopify_store == "store-1"
     assert settings.shopify_access_token == "token"
+    assert settings.shopify_api_version == "2025-01"
 
 
 def test_get_settings_is_cached(monkeypatch):

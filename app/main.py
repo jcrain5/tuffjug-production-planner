@@ -1,10 +1,12 @@
 from pathlib import Path
+from datetime import date, timedelta
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 from app.integrations.odoo import OdooClient
+from app.integrations.shopify import ShopifyClient
 from app.planning.replenishment import ShortagePlanningEngine
 
 app = FastAPI(title="Atlas", version="0.1.0")
@@ -81,6 +83,66 @@ def odoo_purchase_orders() -> dict[str, object]:
     client = OdooClient()
     connected = client.connect()
     return _build_collection_payload(client.get_purchase_orders(), connected)
+
+
+@app.get("/shopify/status")
+def shopify_status() -> dict[str, Any]:
+    client = ShopifyClient()
+    return client.status()
+
+
+@app.get("/shopify/orders")
+def shopify_orders(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    include_excluded: bool = False,
+) -> dict[str, object]:
+    client = ShopifyClient()
+    end_value = end_date or date.today().isoformat()
+    start_value = start_date or (date.today() - timedelta(days=30)).isoformat()
+
+    try:
+        items = client.get_order_lines(start_date=start_value, end_date=end_value, include_excluded=include_excluded)
+        return {
+            "connected": True,
+            "count": len(items),
+            "start_date": start_value,
+            "end_date": end_value,
+            "items": items,
+        }
+    except Exception:
+        return {
+            "connected": False,
+            "count": 0,
+            "start_date": start_value,
+            "end_date": end_value,
+            "items": [],
+        }
+
+
+@app.get("/shopify/demand-by-sku")
+def shopify_demand_by_sku(start_date: str | None = None, end_date: str | None = None) -> dict[str, object]:
+    client = ShopifyClient()
+    end_value = end_date or date.today().isoformat()
+    start_value = start_date or (date.today() - timedelta(days=30)).isoformat()
+
+    try:
+        items = client.get_demand_by_sku(start_date=start_value, end_date=end_value)
+        return {
+            "connected": True,
+            "count": len(items),
+            "start_date": start_value,
+            "end_date": end_value,
+            "items": items,
+        }
+    except Exception:
+        return {
+            "connected": False,
+            "count": 0,
+            "start_date": start_value,
+            "end_date": end_value,
+            "items": [],
+        }
 
 
 @app.get("/inventory", response_class=HTMLResponse)
