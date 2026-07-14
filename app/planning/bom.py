@@ -13,13 +13,27 @@ class BOMExplosionEngine:
         self.products = products
         self.product_lookup = {product.id: product for product in products if getattr(product, "id", None) is not None}
         self.bom_lookup = {getattr(bom, "product_id", None): bom for bom in boms if getattr(bom, "product_id", None) is not None}
+        self.template_bom_lookup = {
+            getattr(bom, "product_template_id", None): bom
+            for bom in boms
+            if getattr(bom, "product_template_id", None) is not None
+        }
         self.components_by_bom: dict[int, list[BomComponentModel]] = defaultdict(list)
         for component in components:
             bom_id = getattr(component, "bom_id", None)
             if bom_id is not None:
                 self.components_by_bom[bom_id].append(component)
 
-    def explode(self, product_id: int, quantity: float = 1.0, visited: set[int] | None = None) -> list[dict[str, Any]]:
+    def _resolve_bom(self, product_id: int | None, template_id: int | None) -> BomModel | None:
+        if product_id is not None:
+            bom = self.bom_lookup.get(product_id)
+            if bom is not None:
+                return bom
+        if template_id is not None:
+            return self.template_bom_lookup.get(template_id)
+        return None
+
+    def explode(self, product_id: int, quantity: float = 1.0, visited: set[int] | None = None, template_id: int | None = None) -> list[dict[str, Any]]:
         if quantity <= 0:
             return []
 
@@ -27,7 +41,7 @@ class BOMExplosionEngine:
         if product_id in visited:
             return []
 
-        bom = self.bom_lookup.get(product_id)
+        bom = self._resolve_bom(product_id, template_id)
         if bom is None:
             return []
 
@@ -42,7 +56,7 @@ class BOMExplosionEngine:
             if component_product_id is None:
                 continue
 
-            nested_bom = self.bom_lookup.get(component_product_id)
+            nested_bom = self._resolve_bom(component_product_id, None)
             if nested_bom is not None:
                 nested = self.explode(component_product_id, quantity=component_quantity, visited=visited | {product_id})
                 exploded.extend(nested)
@@ -59,13 +73,13 @@ class BOMExplosionEngine:
         return exploded
 
 
-def explode_bom(product_id: int, quantity: float = 1.0, boms: list[BomModel] | None = None, components: list[BomComponentModel] | None = None, products: list[ProductModel] | None = None) -> list[dict[str, Any]]:
+def explode_bom(product_id: int, quantity: float = 1.0, boms: list[BomModel] | None = None, components: list[BomComponentModel] | None = None, products: list[ProductModel] | None = None, template_id: int | None = None) -> list[dict[str, Any]]:
     engine = BOMExplosionEngine(
         boms=boms or [],
         components=components or [],
         products=products or [],
     )
-    return engine.explode(product_id, quantity=quantity)
+    return engine.explode(product_id, quantity=quantity, template_id=template_id)
 
 
 def build_bom() -> dict[str, str]:

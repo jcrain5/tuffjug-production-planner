@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -129,18 +130,47 @@ async def shortages_page(request: Request) -> HTMLResponse:
     components = []
     products = []
     inventory = []
+    parent_options: list[dict[str, Any]] = []
+    shortage_rows: list[dict[str, Any]] = []
+    selected_product_id: int | None = None
+    quantity_to_produce = 1.0
+
     if connected:
         boms = client.get_boms()
         components = client.get_bom_components()
         products = client.get_products()
         inventory = client.get_inventory()
+        parent_options = [
+            {
+                "id": getattr(bom, "product_template_id", None),
+                "display_name": getattr(bom, "display_name", None) or "Unnamed BOM",
+                "product_name": getattr(bom, "display_name", None) or "Unnamed BOM",
+            }
+            for bom in boms
+            if getattr(bom, "product_template_id", None) is not None and getattr(bom, "active", True) is True and getattr(bom, "type", None) == "normal"
+        ]
 
-    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
-    shortage_rows = engine.build_plan(10, quantity=1.0) if connected else []
+    params = request.query_params
+    if params.get("parent_product"):
+        selected_product_id = int(params["parent_product"])
+    if params.get("quantity"):
+        try:
+            quantity_to_produce = float(params["quantity"])
+        except ValueError:
+            quantity_to_produce = 1.0
+
+    if connected and parent_options:
+        if selected_product_id is None:
+            selected_product_id = parent_options[0]["id"]
+        engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+        shortage_rows = engine.build_plan(selected_product_id, quantity=quantity_to_produce, product_template_id=selected_product_id) if selected_product_id is not None else []
 
     context = {
         "request": request,
         "connected": connected,
+        "parent_options": parent_options,
+        "selected_product_id": selected_product_id,
+        "quantity_to_produce": quantity_to_produce,
         "shortage_rows": shortage_rows,
     }
     if templates is None:

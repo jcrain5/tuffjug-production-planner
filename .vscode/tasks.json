@@ -224,6 +224,14 @@
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
+		},
+		{
+			"label": "inspect-live-planning-data",
+			"type": "shell",
+			"command": "cd /Users/jasoncrain/Documents/tuffjug-production-planner && . .venv/bin/activate && python - <<'PY'\nfrom app.integrations.odoo import OdooClient\nimport json\nclient = OdooClient(); client.connect()\nfor model, method, domain, fields in [\n    ('mrp.production', 'search_read', [], ['id','name','state','product_id','product_qty','bom_id']),\n    ('purchase.order', 'search_read', [], ['id','name','state','partner_id','date_order']),\n    ('purchase.order.line', 'search_read', [], ['id','order_id','product_id','product_qty','price_unit']),\n]:\n    try:\n        result = client.models.execute_kw(client.config.odoo_database, client.uid, client.config.odoo_api_key, model, method, [domain], {'fields': fields, 'limit': 5})\n        print(model, json.dumps(result, indent=2, default=str)[:4000])\n        print('---')\n    except Exception as exc:\n        print(model, 'ERROR', exc)\n        print('---')\nPY",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
 		}
 	]
 }

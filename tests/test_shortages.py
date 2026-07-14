@@ -1,4 +1,11 @@
-from app.models.odoo import BomComponentModel, BomModel, InventoryItemModel, ProductModel
+from app.models.odoo import (
+    BomComponentModel,
+    BomModel,
+    InventoryItemModel,
+    ManufacturingOrderModel,
+    ProductModel,
+    PurchaseOrderLineModel,
+)
 from app.planning.replenishment import ShortagePlanningEngine, build_shortage_plan
 
 
@@ -45,3 +52,115 @@ def test_shortage_helper_wraps_engine():
 
     assert plan[0]["recommended_action"] == "Available"
     assert plan[0]["quantity_short"] == 0.0
+
+
+def test_as20_quantity_5000_reports_spout_base_shortage():
+    products = [
+        ProductModel(id=100, name="AS20"),
+        ProductModel(id=200, name="Spout Base", default_code="SPB-001"),
+    ]
+    boms = [BomModel(id=39, display_name="AS20 Assembly", product_template_id=100, product_id=None)]
+    components = [BomComponentModel(id=1, bom_id=39, product_id=200, product_qty=1.0)]
+    inventory = [InventoryItemModel(id=1, product_id=200, quantity=100.0)]
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(100, quantity=5000.0, product_template_id=100)
+
+    assert len(plan) == 1
+    assert plan[0]["parent_product"] == "AS20 Assembly"
+    assert plan[0]["component_sku"] == "SPB-001"
+    assert plan[0]["quantity_required"] == 5000.0
+    assert plan[0]["quantity_short"] == 4900.0
+    assert plan[0]["recommended_action"] == "Purchase"
+
+
+def test_multi_level_bom_explosion_returns_only_leaf_components():
+    products = [
+        ProductModel(id=10, name="Parent"),
+        ProductModel(id=20, name="Subassembly"),
+        ProductModel(id=30, name="Leaf"),
+    ]
+    boms = [BomModel(id=1, product_id=10), BomModel(id=2, product_id=20)]
+    components = [
+        BomComponentModel(id=1, bom_id=1, product_id=20, product_qty=1.0),
+        BomComponentModel(id=2, bom_id=2, product_id=30, product_qty=2.0),
+    ]
+    inventory = []
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(10, quantity=2.0)
+
+    assert len(plan) == 1
+    assert plan[0]["quantity_required"] == 4.0
+    assert plan[0]["component_name"] == "Leaf"
+
+
+def test_incoming_mo_reduces_shortage():
+    products = [ProductModel(id=10, name="Parent"), ProductModel(id=20, name="Component")]
+    boms = [BomModel(id=1, product_id=10)]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=20, product_qty=1.0)]
+    inventory = [InventoryItemModel(id=1, product_id=20, quantity=1.0)]
+    incoming_mos = [ManufacturingOrderModel(id=1, product_id=20, product_qty=2.0)]
+
+    engine = ShortagePlanningEngine(
+        boms=boms,
+        components=components,
+        products=products,
+        inventory=inventory,
+        incoming_mo_orders=incoming_mos,
+    )
+    plan = engine.build_plan(10, quantity=2.0)
+
+    assert plan[0]["incoming_mo_quantity"] == 2.0
+    assert plan[0]["projected_available"] == 5.0
+    assert plan[0]["quantity_short"] == 0.0
+    assert plan[0]["recommended_action"] == "Available"
+
+
+def test_incoming_po_reduces_shortage():
+    products = [ProductModel(id=10, name="Parent"), ProductModel(id=20, name="Component")]
+    boms = [BomModel(id=1, product_id=10)]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=20, product_qty=1.0)]
+    inventory = [InventoryItemModel(id=1, product_id=20, quantity=1.0)]
+    incoming_po_lines = [PurchaseOrderLineModel(id=1, product_id=20, product_qty=2.0)]
+
+    engine = ShortagePlanningEngine(
+        boms=boms,
+        components=components,
+        products=products,
+        inventory=inventory,
+        incoming_purchase_order_lines=incoming_po_lines,
+    )
+    plan = engine.build_plan(10, quantity=2.0)
+
+    assert plan[0]["incoming_po_quantity"] == 2.0
+    assert plan[0]["projected_available"] == 5.0
+    assert plan[0]["quantity_short"] == 0.0
+    assert plan[0]["recommended_action"] == "Available"
+
+
+def test_no_shortage_result_is_marked_available():
+    products = [ProductModel(id=10, name="Parent"), ProductModel(id=20, name="Component")]
+    boms = [BomModel(id=1, product_id=10)]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=20, product_qty=1.0)]
+    inventory = [InventoryItemModel(id=1, product_id=20, quantity=10.0)]
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(10, quantity=2.0)
+
+    assert plan[0]["quantity_short"] == 0.0
+    assert plan[0]["recommended_action"] == "Available"
+
+
+def test_template_level_bom_resolution_uses_template_id():
+    products = [ProductModel(id=100, name="Template Parent"), ProductModel(id=200, name="Leaf")]
+    boms = [BomModel(id=1, display_name="Template BOM", product_template_id=100)]
+    components = [BomComponentModel(id=1, bom_id=1, product_id=200, product_qty=1.0)]
+    inventory = []
+
+    engine = ShortagePlanningEngine(boms=boms, components=components, products=products, inventory=inventory)
+    plan = engine.build_plan(100, quantity=1.0, product_template_id=100)
+
+    assert len(plan) == 1
+    assert plan[0]["component_name"] == "Leaf"
+    assert plan[0]["parent_product"] == "Template BOM"

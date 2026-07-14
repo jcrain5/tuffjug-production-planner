@@ -125,6 +125,7 @@ class ManufacturingOrderModel(AtlasBaseModel):
     name: str | None = None
     state: str | None = None
     product_id: int | None = None
+    product_qty: float | None = None
     bom_id: int | None = None
 
 
@@ -133,6 +134,12 @@ class PurchaseOrderModel(AtlasBaseModel):
     state: str | None = None
     partner_id: int | None = None
     date_order: str | None = None
+
+
+class PurchaseOrderLineModel(AtlasBaseModel):
+    order_id: int | None = None
+    product_id: int | None = None
+    product_qty: float | None = None
 
 
 class ReorderingRuleModel(AtlasBaseModel):
